@@ -68,6 +68,13 @@ nirps_apero['adc2'] = 'HIERARCH ESO INS ADC2 START'
 # not yet implemented
 nirps_geneva = dict()
 
+igrins_zoe = dict()
+igrins_zoe['airmass'] = 'AMSTART'
+igrins_zoe['telaz'] = 'TELRA'
+igrins_zoe['adc1'] = 'NADCS'
+igrins_zoe['adc2'] = 'NADCS'
+
+
 # def fits2wave(file_or_header):
 #     info = """
 #         Provide a fits header or a fits file
@@ -321,6 +328,62 @@ def read_all_sp_CADC(path, file_list):
             np.array(count), np.array(blaze), np.array(recon), filenames
 
 
+def read_all_sp_igrins(file_list, blaze_path):    
+    
+    """
+    Read all spectra
+    Must have a list with all filename to read 
+    """
+    
+    # create some empty list and append later
+    headers, count, wv, blaze = list_of_dict([]), [], [], []
+    # headers, count, wv, blaze = [], [], [], []
+    filenames = []
+
+    blaze_path = Path(blaze_path)
+    file_list = Path(file_list)
+
+    # ----------------- Zoe's Code start here ---------------------------
+    with open(file_list, 'r') as file:
+    # with open('/home/ldang05/projects/def-dlafre/ldang05/Data/WASP-77Ab/list_SDCH_spec.txt', 'r') as file:
+        file_paths = file.readlines()
+    file_paths = [path.strip() for path in file_paths]
+
+    # Iterate over the file paths and open each FITS file
+    for file in file_paths:
+        try:
+            filenames.append(file)
+
+            hdul = fits.open(file)
+
+            header = hdul[0].header
+            image = hdul[0].data
+            wvsol = hdul[1].data
+
+            headers.append(header)
+            count.append(image)
+            wv.append(wvsol)
+            
+            hdul.close()  # Close the FITS file after processing
+            
+        except IOError:
+            print(f"Error opening FITS file: {file}")
+    
+    with fits.open(blaze_path) as hdul:
+        b = hdul[0].data
+        blaze.append(b)
+
+
+    # LISTs need to return: 
+    # filename: check
+    # header: check
+    # wavelength: check
+    # counts: check
+    # blaze function: check
+    
+    return headers, filenames, np.array(wv), np.array(count), np.array(blaze)
+
+
 # a very slight modification of the spirou function: the wave solution is now in the second extension of the wave file
 def read_all_sp_nirps_apero(path, file_list, onedim=False, wv_default=None, blaze_default=None,
                             blaze_path=None, debug=False, ver06=False, cheby=False):
@@ -408,6 +471,7 @@ def read_all_sp_nirps_apero(path, file_list, onedim=False, wv_default=None, blaz
 # give the appropriate functions to read spectra to all the instrument/DRS dictionaries
 spirou['read_all_sp'] = read_all_sp
 nirps_apero['read_all_sp'] = read_all_sp_nirps_apero
+igrins_zoe['read_all_sp'] = read_all_sp_igrins
 
 
 def fake_noise(flux, gwidth=1):
