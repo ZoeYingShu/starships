@@ -38,9 +38,10 @@ from sklearn.decomposition import PCA
 from collections import OrderedDict
 import gc
 import logging
+from PyAstronomy import pyasl
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+log = logging.getLogger(__name__)
+log.setLevel(logging.INFO)
 
 
 # Constants
@@ -70,9 +71,12 @@ nirps_geneva = dict()
 
 igrins_zoe = dict()
 igrins_zoe['airmass'] = 'AMSTART'
-igrins_zoe['telaz'] = 'TELRA'
+# igrins_zoe['telaz'] = 'TELRA'
 igrins_zoe['adc1'] = 'NADCS'
 igrins_zoe['adc2'] = 'NADCS'
+igrins_zoe['bjd'] = 'JD-OBS'
+igrins_zoe['mjd'] = 'MJD-OBS'
+igrins_zoe['exptime'] = 'EXPTIMET'
 
 
 # def fits2wave(file_or_header):
@@ -316,20 +320,20 @@ def read_all_sp_spirou_CADC(path, file_list):
             np.array(count), np.array(blaze), np.array(recon), filenames
 
 
-def read_all_sp_igrins(file_list, blaze_path):    
+def read_all_sp_igrins(path, file_list, blaze_path=None):    
     
     """
     Read all spectra
     Must have a list with all filename to read 
     """
-    
+
     # create some empty list and append later
     headers, count, wv, blaze = list_of_dict([]), [], [], []
     # headers, count, wv, blaze = [], [], [], []
     filenames = []
 
     blaze_path = Path(blaze_path)
-    file_list = Path(file_list)
+    file_list = path/Path(file_list)
 
     # ----------------- Zoe's Code start here ---------------------------
     with open(file_list, 'r') as file:
@@ -369,7 +373,7 @@ def read_all_sp_igrins(file_list, blaze_path):
     # counts: check
     # blaze function: check
     
-    return headers, filenames, np.array(wv), np.array(count), np.array(blaze)
+    return headers, np.array(wv), np.array(count), np.array(blaze), filenames
 
 
 # a very slight modification of the spirou function: the wave solution is now in the second extension of the wave file
@@ -668,7 +672,7 @@ class Observations():
 
             log.info('Fetching data')
             headers, headers_image, headers_tellu, \
-            wv, count, blaze, tellu, filenames = read_all_sp_spirou_CADC(path, list_tcorr)
+            wave, count, blaze, tellu, filenames = read_all_sp_spirou_CADC(path, list_tcorr)
 
             self.headers_image, self.headers_tellu = headers_image, headers_tellu
 
@@ -676,9 +680,21 @@ class Observations():
             _, _, _, _, count_uncorr, blaze_uncorr, _, filenames_uncorr = read_all_sp_spirou_CADC(path, list_e2ds)
 
         else:
-            log.info('Fetching data')
-            log.info(f"File: {list_tcorr}")
-            headers, wv, count, blaze, filenames = read_sp(path, list_tcorr, **kwargs)
+            log.info("Fetching the uncorrected spectra")
+            log.info(f"File: {list_e2ds}")
+
+            headers, wave, count_uncorr, blaze_uncorr, filenames_uncorr = read_sp(path, list_e2ds, **kwargs)
+
+            if list_tcorr is None:
+                log.info('No telluric correction available')
+                count = count_uncorr.copy()
+                blaze = blaze_uncorr.copy()
+                filenames = filenames_uncorr
+
+            else:
+                log.info('Fetching data')
+                log.info(f"File: {list_tcorr}")
+                headers, wave, count, blaze, filenames = read_sp(path, list_tcorr, **kwargs)
 
             #             self.headers = headers
             #             self.wave = np.array(wv)
@@ -686,17 +702,18 @@ class Observations():
             #             self.blaze = np.ma.masked_array(blaze)
             #             self.filenames  = filenames
 
-            log.info("Fetching the tellurics")
-            log.info(f"File: {list_recon}")
-            _, _, tellu, _, _ = read_sp(path, list_recon, **kwargs)
 
-            log.info("Fetching the uncorrected spectra")
-            log.info(f"File: {list_e2ds}")
+            if list_recon is None:
+                log.info('No reconstruction available')
+                tellu = np.ones_like(count)
 
-            _, _, count_uncorr, blaze_uncorr, filenames_uncorr = read_sp(path, list_e2ds, **kwargs)
+            else:
+                log.info("Fetching the tellurics")
+                log.info(f"File: {list_recon}")
+                _, _, tellu, _, _ = read_sp(path, list_recon, **kwargs)
 
         self.headers = headers
-        self.wave = np.array(wv)
+        self.wave = np.array(wave)
         self.count = np.ma.masked_invalid(count)
         self.blaze = np.ma.masked_invalid(blaze)
         self.filenames = filenames
@@ -777,23 +794,40 @@ class Observations():
         """
         
         p = self.planet
-        self.headers[0]['VERSION']
+        # self.headers[0]['VERSION']
         self.n_spec, self.nord, self.npix = self.count.shape
         
         if sequence is None:
             
             if self.CADC is False:
                 if time_type == 'BJD':
-                    self.t_start = Time(np.array(self.headers.get_all('BJD')[0], dtype='float'), 
+                    self.t_start = Time(np.array(self.headers.get_all(self.instrument['bjd'])[0], dtype='float'), 
                                 format='jd').jd.squeeze()# * u.d
                 elif time_type == 'MJD':
                     self.t_start = Time((np.array(self.headers.get_all('MJDATE')[0], dtype='float') + \
                                         np.array(self.headers.get_all('MJDEND')[0], dtype='float')) / 2, 
                                 format='jd').jd.squeeze()# * u.d
                     
-                self.SNR = np.ma.masked_invalid([np.array(self.headers.get_all('EXTSN'+'{:03}'.format(order))[0], 
-                                 dtype='float') for order in range(self.nord)]).T
-                self.berv0 = np.array(self.headers.get_all('BERV')[0], dtype='float').squeeze()
+                try:
+                    self.SNR = np.ma.masked_invalid([np.array(self.headers.get_all('EXTSN'+'{:03}'.format(order))[0], 
+                                dtype='float') for order in range(self.nord)]).T
+                except:
+                    self.SNR = np.ma.median(self.count,axis=-1)
+                
+                try:
+                    self.berv0 = np.array(self.headers.get_all('BERV')[0], dtype='float').squeeze()
+                except KeyError:
+                    ra = self.headers[0]['OBJRA']
+                    dec = self.headers[0]['OBJDEC']
+                    bjds = [hdr['JD-OBS'] for hdr in self.headers]
+
+                    # Cerro Pachon, Chile
+                    lat = -70.73669
+                    lon = -30.24075
+                    alt = 2722.0
+                    berv = np.array([pyasl.helcorr(lat, lon, alt, ra, dec, bjd)[0] for bjd in bjds])
+                    self.berv0 = berv
+            
             else:
 #                 obs_date = [date+' '+hour for date,hour in zip(self.headers_image.get_all('DATE-OBS')[0], \
 #                                                self.headers.get_all('UTIME')[0])]
@@ -801,27 +835,34 @@ class Observations():
 #                 self.t_start = Time(np.array(self.headers_image.get_all('BJD')[0], dtype='float'), 
 #                                 format='jd').jd.squeeze() * u.d
                 if time_type == 'BJD':
-                    self.t_start = Time(np.array(self.headers_image.get_all('BJD')[0], dtype='float'), 
+                    self.t_start = Time(np.array(self.headers_image.get_all(self.instrument['bjd'])[0], dtype='float'), 
                                 format='jd').jd.squeeze() #* u.d
                 elif time_type == 'MJD':
                     self.t_start = Time((np.array(self.headers_image.get_all('MJDATE')[0], dtype='float') + \
                                         np.array(self.headers_image.get_all('MJDEND')[0], dtype='float')) / 2, 
                                 format='jd').jd.squeeze() #* u.d
 
-                try:
-                    self.SNR = np.ma.masked_invalid([np.array(self.headers_image.get_all('SNR'+'{}'.format(order))[0], \
-                                             dtype='float') for order in range(self.nord)]).T
-                except KeyError:
-                    self.SNR = np.ma.masked_invalid([np.array(self.headers_image.get_all('EXTSN'+'{:03}'.format(order))[0], \
-                                         dtype='float') for order in range(self.nord)]).T
-                self.berv0 = np.array(self.headers_image.get_all('BERV')[0], dtype='float').squeeze()
+                # try:
+                #     self.SNR = np.ma.masked_invalid([np.array(self.headers_image.get_all('SNR'+'{}'.format(order))[0], \
+                #                              dtype='float') for order in range(self.nord)]).T
+                # except KeyError:
+                #     self.SNR = np.ma.masked_invalid([np.array(self.headers_image.get_all('EXTSN'+'{:03}'.format(order))[0], \
+                #                          dtype='float') for order in range(self.nord)]).T
+                # self.berv0 = np.array(self.headers_image.get_all('BERV')[0], dtype='float').squeeze()
             
-            self.dt = np.array(np.array(self.headers.get_all('EXPTIME')[0], dtype='float') ).squeeze() * u.s
+            self.dt = np.array(np.array(self.headers.get_all(self.instrument['exptime'])[0], dtype='float') ).squeeze() * u.s
             self.AM = np.array(self.headers.get_all(self.instrument['airmass'])[0], dtype='float').squeeze()
-            self.telaz = np.array(self.headers.get_all(self.instrument['telaz'])[0], dtype='float').squeeze()
+            
+            try:
+                self.telaz = np.array(self.headers.get_all(self.instrument['telaz'])[0], dtype='float').squeeze()
+            except KeyError:
+                self.telaz = None
+
             self.adc1 = np.array(self.headers.get_all(self.instrument['adc1'])[0], dtype='float').squeeze()
             self.adc2 = np.array(self.headers.get_all(self.instrument['adc2'])[0], dtype='float').squeeze()
             self.SNR = np.clip(self.SNR, 0,None)
+            self.flux = self.count/(self.blaze/np.nanmax(self.blaze, axis=-1)[:,:,None])
+
         else : 
             self.t_start = sequence[0] #* u.d
             self.SNR = sequence[1]
