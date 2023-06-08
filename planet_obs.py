@@ -337,7 +337,6 @@ def read_all_sp_igrins(path, file_list, blaze_path=None):
 
     # ----------------- Zoe's Code start here ---------------------------
     with open(file_list, 'r') as file:
-    # with open('/home/ldang05/projects/def-dlafre/ldang05/Data/WASP-77Ab/list_SDCH_spec.txt', 'r') as file:
         file_paths = file.readlines()
     file_paths = [path.strip() for path in file_paths]
 
@@ -826,6 +825,7 @@ class Observations():
                     lon = -30.24075
                     alt = 2722.0
                     berv = np.array([pyasl.helcorr(lat, lon, alt, ra, dec, bjd)[0] for bjd in bjds])
+                    berv = np.zeros_like(berv)
                     self.berv0 = berv
             
             else:
