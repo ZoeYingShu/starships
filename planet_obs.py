@@ -320,59 +320,73 @@ def read_all_sp_spirou_CADC(path, file_list):
             np.array(count), np.array(blaze), np.array(recon), filenames
 
 
-def read_all_sp_igrins(path, file_list, blaze_path=None):    
+def read_all_sp_igrins(path, file_list, blaze_path=None, input_type='data'):    
     
     """
     Read all spectra
-    Must have a list with all filename to read 
+    Must have a list with all filename to read
+
+    input_type: 'data'-observation data, 'recon'-telluric reconstruction 
     """
 
     # create some empty list and append later
-    headers, count, wv, blaze = list_of_dict([]), [], [], []
-    # headers, count, wv, blaze = [], [], [], []
-    filenames = []
 
-    blaze_path = Path(blaze_path)
     file_list = path/Path(file_list)
-
-    # ----------------- Zoe's Code start here ---------------------------
     with open(file_list, 'r') as file:
         file_paths = file.readlines()
     file_paths = [path.strip() for path in file_paths]
-
-    # Iterate over the file paths and open each FITS file
-    for file in file_paths:
-        try:
-            filenames.append(file)
-
-            hdul = fits.open(file)
-
-            header = hdul[0].header
-            image = hdul[0].data
-            wvsol = hdul[1].data
-
-            headers.append(header)
-            count.append(image)
-            wv.append(wvsol)
-            
-            hdul.close()  # Close the FITS file after processing
-            
-        except IOError:
-            print(f"Error opening FITS file: {file}")
     
-    with fits.open(blaze_path) as hdul:
-        b = hdul[0].data
-        blaze.append(b)
+    if input_type == 'data':
 
+        headers, count, wv, blaze = list_of_dict([]), [], [], []
+        # headers, count, wv, blaze = [], [], [], []
+        filenames = []
 
-    # LISTs need to return: 
-    # filename: check
-    # header: check
-    # wavelength: check
-    # counts: check
-    # blaze function: check
+        blaze_path = Path(blaze_path)
+
+        # Iterate over the file paths and open each FITS file
+        for file in file_paths:
+            try:
+                filenames.append(file)
+
+                hdul = fits.open(file)
+
+                header = hdul[0].header
+                image = hdul[0].data
+                wvsol = hdul[1].data
+
+                headers.append(header)
+                count.append(image)
+                wv.append(wvsol)
+                
+                hdul.close()  # Close the FITS file after processing
+                
+            except IOError:
+                print(f"Error opening FITS file: {file}")
+        
+        with fits.open(blaze_path) as hdul:
+            b = hdul[0].data
+            blaze.append(b)
+        
+        return headers, np.array(wv), np.array(count), np.array(blaze), filenames
     
-    return headers, np.array(wv), np.array(count), np.array(blaze), filenames
+    elif input_type == 'recon': # file_list is telluric_recon
+
+        tellu_recon = []
+
+        for file in file_paths:
+            try:
+                hdul = fits.open(file)
+
+                tellu = hdul[0].data
+                tellu_recon.append(tellu)
+                
+                hdul.close() 
+                
+            except IOError:
+                print(f"Error opening FITS file: {file}")
+            
+        return np.array(tellu_recon)
 
 
 # a very slight modification of the spirou function: the wave solution is now in the second extension of the wave file
@@ -709,7 +723,8 @@ class Observations():
             else:
                 log.info("Fetching the tellurics")
                 log.info(f"File: {list_recon}")
-                _, _, tellu, _, _ = read_sp(path, list_recon, **kwargs)
+                # _, _, tellu, _, _ = read_sp(path, list_recon, **kwargs)
+                tellu = read_sp(path, list_recon, input_type='recon', **kwargs)
 
         self.headers = headers
         self.wave = np.array(wave)
@@ -825,7 +840,7 @@ class Observations():
                     lon = -30.24075
                     alt = 2722.0
                     berv = np.array([pyasl.helcorr(lat, lon, alt, ra, dec, bjd)[0] for bjd in bjds])
-                    berv = np.zeros_like(berv)
+                    # berv = np.zeros_like(berv)
                     self.berv0 = berv
             
             else:
