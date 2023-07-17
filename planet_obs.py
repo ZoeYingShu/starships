@@ -1889,7 +1889,7 @@ def load_single_sequences(filename, name, path='',
     pca.singular_values_ = data_tr['singular_values_']
     pca.mean_ = data_tr['mean_']
     pca.n_components_ = data_tr['n_components_']
-    pca.n_features_ = data_tr['n_features_']
+    # pca.n_features_ = data_tr['n_features_']
     pca.n_samples_ = data_tr['n_samples_']
     pca.noise_variance_ = data_tr['noise_variance_']
     pca.n_features_in_ = data_tr['n_features_in_']
@@ -2397,7 +2397,7 @@ def generate_all_transits(obs, transit_tags, RV_sys, params_all, iOut_temp,
         if len(name_tag) < 2:
             if flux_all is not None:
                 kwargs_build_ts['flux'] = flux_all[tag-1]
-
+                
             list_tr[name_tag] = gen_obs_sequence(obs, transit_tags[tag-1], params_all[tag-1], 
                                                  iOut_temp[tag-1],
                                                  coeffs, ld_model, kind_trans, RV_sys[tag-1], 
